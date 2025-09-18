@@ -9,43 +9,33 @@
 [![PyPI](https://img.shields.io/pypi/v/yagmail.svg?style=flat-square)](https://pypi.python.org/pypi/yagmail/)
 [![PyPI](https://img.shields.io/pypi/pyversions/yagmail.svg?style=flat-square)](https://pypi.python.org/pypi/yagmail/)
 
+*For the asynchronous asyncio version, look here*: https://github.com/kootenpv/aioyagmail
+
 The goal here is to make it as simple and painless as possible to send emails.
 
 In the end, your code will look something like this:
 
 ```python
 import yagmail
-yag = yagmail.SMTP()
+yag = yagmail.SMTP('mygmailusername', 'mygmailpassword')
 contents = ['This is the body, and here is just text http://somedomain/image.png',
             'You can find an audio file attached.', '/local/path/song.mp3']
 yag.send('to@someone.com', 'subject', contents)
 ```
 
-Or a simple one-liner:
-```python
-yagmail.SMTP('mygmailusername').send('to@someone.com', 'subject', 'This is the body')
-```
-
-Note that it will read the password securely from your keyring (read below). If you don't want this, you can also initialize with:
-
-```python
-yag = yagmail.SMTP('mygmailusername', 'mygmailpassword')
-```
-
-but honestly, do you want to have your password written in your script?
-
-Similarly, I make use of having my username in a file named `.yagmail` in my home folder.
+In 2020, I personally prefer: using an [Application-Specific Password](https://support.google.com/accounts/answer/185833)
 
 ### Table of Contents
 
 |Section|Explanation|
 |---------------------------------------------------------------|---------------------------------------------------------------------|
 |[Install](#install)                                            |   Find the instructions on how to install yagmail here              |
-|[Username and password](#username-and-password)                |   No more need to fill in username and password in scripts          |
 |[Start a connection](#start-a-connection)                      |   Get started                                                       |
 |[Usability](#usability)                                        |   Shows some usage patterns for sending                             |
 |[Recipients](#recipients)                                      |   How to send to multiple people, give an alias or send to self     |
 |[Magical contents](#magical-contents)                          |   Really easy to send text, html, images and attachments            |
+|[Attaching files](#attaching-files)                            |   How attach files to the email                                     |
+|[DKIM Support](#dkim-support)                                  |   Add DKIM signature to your emails with your private key           |
 |[Feedback](#feedback)                                          |   How to send me feedback                                           |
 |[Roadmap (and priorities)](#roadmap-and-priorities)            |   Yup                                                               |
 |[Errors](#errors)                                              |   List of common errors for people dealing with sending emails      |
@@ -61,32 +51,12 @@ pip3 install yagmail[all]
 
 ```
 
-If you get problems installing keyring, try installing without, i.e. `pip install yagmail`.
-
 As a side note, `yagmail` can now also be used to send emails from the command line.
-
-### Username and password
-
-[keyring quoted](https://pypi.python.org/pypi/keyring#what-is-python-keyring-lib):
-> The Python `keyring` lib provides a easy way to access the system keyring service from python. It can be used in any application that needs safe password storage.
-
-You know you want it. Set it up by opening a Python interpreter and running:
-
-```python
-import yagmail
-yagmail.register('mygmailusername', 'mygmailpassword')
-```
-
-In fact, it is just a wrapper for `keyring.set_password('yagmail', 'mygmailusername', 'mygmailpassword')`.
-
-When no password is given and the user is not found in the keyring, `getpass.getpass()` is used to prompt the user for a password. Upon entering this once, it can be stored in the keyring and never asked again.
-
-Another convenience can be to save a .yagmail file in your home folder, containing just the email username. You can then omit everything, and simply use `yagmail.SMTP()` to connect. Of course, this wouldn't work with more accounts, but it might be a nice default. Upon request I'll consider adding more details to this .yagmail file (host, port and other settings).
 
 ### Start a connection
 
 ```python
-yag = yagmail.SMTP('mygmailusername')
+yag = yagmail.SMTP('mygmailusername', 'mygmailpassword')
 ```
 
 Note that this connection is reusable, closable and when it leaves scope it will **clean up after itself in CPython**.
@@ -100,7 +70,7 @@ Defining some variables:
 
 ```python
 to = 'santa@someone.com'
-to2 = 'easterbunny@someone.com
+to2 = 'easterbunny@someone.com'
 to3 = 'sky@pip-package.com'
 subject = 'This is obviously the subject'
 body = 'This is obviously the body'
@@ -151,7 +121,7 @@ It is even safer to use Oauth2 for authentication, as you can revoke the rights 
 The code:
 
 ```python
-yag = SMTP("user@gmail.com", oauth2_file="~/oauth2_creds.json")
+yag = yagmail.SMTP("user@gmail.com", oauth2_file="~/oauth2_creds.json")
 yag.send(subject="Great!")
 ```
 
@@ -161,11 +131,17 @@ After you provide them, a link will be shown in the terminal that you should fol
 
 Note that people who obtain the file can send emails, but nothing else. As soon as you notice, you can simply disable the token.
 
+#### Preventing OAuth authorization from expiring after 7 days
+
+Your Google Cloud Platform project's OAuth consent screen must be in **"In production" publishing status** before authorizing to not have the authorization expire after 7 days. See status at https://console.cloud.google.com/apis/credentials/consent
+
+Your OAuth **client ID must be of type "Desktop"**. Check at https://console.cloud.google.com/apis/credentials
+
 ### Magical `contents`
 
 The `contents` argument will be smartly guessed. It can be passed a string (which will be turned into a list); or a list. For each object in the list:
 
-- If it is a dictionary it will assume the key is the content and the value is an alias (only for images currently!)
+- If it is a dictionary it will assume the key is the content, and the value is an alias (only for images currently!)
   e.g. {'/path/to/image.png' : 'MyPicture'}
 - It will try to see if the content (string) can be read as a file locally,
   e.g. '/path/to/image.png'
@@ -183,6 +159,64 @@ As of version 0.4.94, `raw` and `inline` have been added.
 - `raw` ensures a string will not receive any "magic" (inlining, html, attaching)
 - `inline` will make an image appear in the text.
 
+### Attaching Files
+There are multiple ways to attach files in the `attachments` parameter (in addition to magical `contents` parameter).
+1. One can pass a list of paths i.e.
+```python
+yag.send(to=recipients,
+         subject=email_subject,
+         contents=contents,
+         attachments=['path/to/attachment1.png', 'path/to/attachment2.pdf', 'path/to/attachment3.zip']
+)
+```
+2. One can pass an instance of [`io.IOBase`](https://docs.python.org/3/library/io.html#io.IOBase).
+```python
+with open('path/to/attachment', 'rb') as f:
+    yag.send(to=recipients,
+             subject=email_subject,
+             contents=contents,
+             attachments=f
+             )
+```
+In this example `f` is an instance of `_io.BufferedReader` a subclass of the abstract class `io.IOBase`.
+
+`f` has in this example the attribute `.name`, which is used by yagmail as filename as well as to detect the correct MIME-type.
+Not all `io.IOBase` instances have the `.name` attribute in which case yagmail names the attachments `attachment1`, `attachment2`, ... without a file extension!
+Therefore, it is highly recommended setting the filename with extension manually e.g. `f.name = 'my_document.pdf'`
+
+A real-world example would be if the attachment is retrieved from a different source than the disk (e.g. downloaded from the internet or [uploaded by a user in a web-application](https://docs.streamlit.io/en/stable/api.html#streamlit.file_uploader))
+
+### DKIM Support
+
+To send emails with dkim signature, you need to install the package with all related packages.
+```
+pip install yagmail[all]
+# or
+pip install yagmail[dkim]
+```
+
+Usage:
+```python
+from yagmail import SMTP
+from yagmail.dkim import DKIM
+from pathlib import Path
+
+# load private key from file/secrets manager
+private_key = Path("privkey.pem").read_bytes()
+
+dkim_obj = DKIM(
+  domain=b"a.com",
+  selector=b"selector",
+  private_key=private_key,
+  include_headers=[b"To", b"From", b"Subject"],
+  # To include all default headers just pass None instead
+  # include_headers=None,
+)
+
+yag = SMTP(dkim=dkim_obj)
+
+# all the rest is the same
+```
 ### Feedback
 
 I'll try to respond to issues within 24 hours at Github.....
@@ -209,10 +243,10 @@ And please send me a line of feedback with `SMTP().feedback('Great job!')` :-)
 - ~~`yagmail` as a command on CLI upon install~~
 - ~~Added `feedback` function on SMTP to be able to send me feedback directly :-)~~
 - ~~Added the option to validate emailaddresses...~~
-- ~~however, I'm unhappy with the error handling/loggin of wrong emails~~
+- ~~however, I'm unhappy with the error handling/logging of wrong emails~~
 - ~~Logging count & mail capability (very low)~~
 - ~~Add documentation to exception classes (low)~~
-- ~~add `raw` and `inline```~~
+- ~~add `raw` and `inline`~~
 - ~~oauth2~~
 - ~~Travis CI integration ~~
 - ~~ Add documentation to all functions (high, halfway) ~~
@@ -222,8 +256,6 @@ And please send me a line of feedback with `SMTP().feedback('Great job!')` :-)
 - Add option to shrink images (low)
 
 ### Errors
-
-- Make sure you have a keyring entry (see section <a href="#no-more-password-and-username">No more password and username</a>), or use getpass to register. I discourage to use username / password in scripts.
 
 - [`smtplib.SMTPException: SMTP AUTH extension not supported by server`](http://stackoverflow.com/questions/10147455/trying-to-send-email-gmail-as-mail-provider-using-python)
 
